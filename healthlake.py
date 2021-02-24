@@ -148,6 +148,7 @@ def generate_detail(date):
 
 def clear_cache(date):
     '''
+    For the specified date, destroy all cached queries and daily rollups.
     '''
     # find the CSV results at the specified output path in S3
     response = s3.list_objects_v2(
@@ -191,14 +192,9 @@ def fetch_detail(date):
         update_date = response['LastModified']
         now = arrow.now(tz=conf.tz)
         if update_date - target_eod < timedelta(hours=36):
-            print('Result is less than 36 hours from target date')
             if now - update_date < timedelta(hours=1):
-                print('Result in the last hour, returning.')
-                print('\t', update_date)
-                print('\t', now - update_date)
                 return result
 
-            print('Regenerating...')
             clear_cache(date)
             result = json.loads(generate_detail(date))
 
