@@ -1,0 +1,11 @@
+.serverless/
+__pycache__/
+conf.py
+include/
+node_modules/
+package-lock.json
+package.json
+samples/
+serverless.yml
+spec.txt
+venv/

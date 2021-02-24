@@ -1,0 +1,55 @@
+service: healthlake 
+
+provider:
+  name: aws
+  runtime: python3.6
+  stage: dev
+  region: us-east-1
+  memorySize: 128
+  timeout: 30
+  apiGateway:
+    shouldStartNameWithService: true
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "s3:*"
+      Resource:
+        Fn::Join: ['', [Fn::GetAtt: [ MyBucket, Arn ]] ]
+    - Effect: "Allow"
+      Action:  
+        - "s3:*"
+      Resource:
+        Fn::Join: ['', [Fn::GetAtt: [ MyBucket, Arn], '/*'] ]
+    - Effect: "Allow"
+      Action:
+        - "glue:*"
+      Resource:
+        - "*"
+    - Effect: "Allow"
+      Action:
+        - "athena:*"
+      Resource:
+        - "*"
+      
+
+plugins:
+  - serverless-wsgi
+  - serverless-python-requirements
+resources:
+  Resources:
+    MyBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: 'my-healthlake-bucket'
+
+
+functions:
+  healthlake:
+    handler: wsgi_handler.handler
+    events:
+      - http: ANY /
+      - http: 'ANY /{proxy+}'
+
+custom:
+  wsgi:
+    app: healthlake.app

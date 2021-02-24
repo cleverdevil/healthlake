@@ -1,0 +1,3 @@
+bucket = 'my-healthlake-bucket'
+database = 'health'
+tz = 'America/Los_Angeles'
