@@ -146,6 +146,75 @@ def generate_detail(date):
             return json.dumps(result)
 
 
+def generate_summary(date):
+    '''
+    Store a single, JSON-formatted object containing all results
+    and data points for a single, specified month, in the format
+    `YYYY-MM`.
+    '''
+
+    # calculate date range
+    start = arrow.get(date).floor('month')
+    end = start.ceil('month')
+
+    # query athena for all data points for the specified date
+    query = '''
+        SELECT * FROM history WHERE
+            datetime >= TIMESTAMP '%(start)s 00:00:00'
+        AND
+            datetime <= TIMESTAMP '%(end)s 23:59:59'
+    ''' % dict(
+        start=start.date().isoformat(),
+        end=end.date().isoformat()
+    )
+
+    output = 's3://' + conf.bucket + '/monthly-summaries/' + date
+
+    result = wait_on_query(query, output)
+
+    # find the CSV results at the specified output path in S3
+    response = s3.list_objects_v2(
+        Bucket=conf.bucket,
+        Prefix='monthly-summaries/' + date
+    )
+    if 'Contents' not in response:
+        raise Exception('Query failed')
+
+    # find the CSV object containing the query results
+    for key in response['Contents']:
+        if key['Key'].endswith('.csv'):
+            response = s3.get_object(
+                Bucket=conf.bucket,
+                Key=key['Key']
+            )
+
+            # parse the CSV data
+            reader = csv.DictReader(
+                StringIO(response['Body'].read().decode('utf-8'))
+            )
+
+            # generate our data rollup
+            result = {}
+            for line in reader:
+                line_day = arrow.get(line['date'][:10]).date().isoformat()
+                day_results = result.setdefault(line_day, {})
+
+                day_results[line['name']] = {
+                    key: value
+                    for (key, value) in line.items()
+                    if value and key not in ('name', 'date')
+                }
+
+            # store the data rollup in S3
+            s3.put_object(
+                Bucket=conf.bucket,
+                Key='monthly-summaries/' + date + '/results.json',
+                Body=json.dumps(result)
+            )
+
+            return json.dumps(result)
+
+
 def clear_cache(date):
     '''
     For the specified date, destroy all cached queries and daily rollups.
@@ -206,6 +275,28 @@ def fetch_detail(date):
     return result
 
 
+def fetch_summary(date):
+    '''
+    Fetch the JSON summary of all results for a single month,
+    specified as a string in the format 'YYYY-MM'.
+    '''
+
+    # try and get the cached summary for the month
+    try:
+        response = s3.get_object(
+            Bucket=conf.bucket,
+            Key='monthly-summaries/' + date + '/results.json'
+        )
+        result = json.loads(response['Body'].read())
+
+    # if we can't find it, generate it
+    except s3.exceptions.NoSuchKey:
+        result = json.loads(generate_summary(date))
+
+    # return our summary
+    return result
+
+
 #
 # HTTP Routes
 #
@@ -246,5 +337,28 @@ def detail(datestr):
     # if there is no data, then abort
     if not len(data):
         flask.abort(404, 'No data available for this date.')
+
+    return flask.jsonify(data)
+
+
+@app.route('/summary/<monthstr>', methods=['GET'])
+def summary(monthstr):
+    '''
+    Get summary of all results for a single month.
+    '''
+
+    # validate that the requested month is in the past
+    month_start = arrow.now(tz=conf.tz).floor('month')
+    requested = arrow.get(monthstr).replace(tzinfo=conf.tz)
+
+    if requested >= month_start:
+        flask.abort(404, 'Please request a month in the past.')
+
+    # otherwise, fetch the summary and return it to the client
+    data = fetch_summary(monthstr)
+
+    # if there is no data, then abort
+    if not len(data):
+        flask.abort(404, 'No data available for this month.')
 
     return flask.jsonify(data)
