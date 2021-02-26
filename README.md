@@ -53,7 +53,7 @@ deploy`.
 Web Service API 
 ---------------
 
-There are only two routes for the API:
+There are only three routes for the API:
 
 ### `HTTP POST /sync`
 
@@ -68,6 +68,14 @@ structure and transform it to make it easy to leverage in AWS Glue and Athena.
 
 This endpoint will return all metrics, in JSON format, that are available on the
 specified day. There is some intelligence in the service for generating rollups
+automatically, on-demand, to reduce cost and improve performance. If provided
+with a date where data is not yet available, or is in the future, the service
+will return a 404 with a descriptive status message.
+
+### `HTTP GET /summary/<YYYY-MM>`
+
+This endpoint will return all metrics, in JSON format, that are available on the
+specified month. There is some intelligence in the service for generating rollups
 automatically, on-demand, to reduce cost and improve performance. If provided
 with a date where data is not yet available, or is in the future, the service
 will return a 404 with a descriptive status message.
