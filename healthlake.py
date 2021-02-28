@@ -215,6 +215,55 @@ def generate_summary(date):
             return json.dumps(result)
 
 
+def generate_global_metrics():
+    '''
+    Fetch the JSON global metrics summary for all health
+    data stored in the data lake.
+    '''
+
+    # query athena for all data points for the specified date
+    query = 'SELECT * FROM daily_global_metrics'
+
+    output = 's3://' + conf.bucket + '/global-metrics'
+
+    result = wait_on_query(query, output)
+
+    # find the CSV results at the specified output path in S3
+    response = s3.list_objects_v2(
+        Bucket=conf.bucket,
+        Prefix='global-metrics'
+    )
+    if 'Contents' not in response:
+        raise Exception('Query failed')
+
+    # find the CSV object containing the query results
+    for key in response['Contents']:
+        if key['Key'].endswith('.csv'):
+            response = s3.get_object(
+                Bucket=conf.bucket,
+                Key=key['Key']
+            )
+
+            # parse the CSV data
+            reader = csv.DictReader(
+                StringIO(response['Body'].read().decode('utf-8'))
+            )
+
+            # generate our data rollup
+            result = {}
+            for line in reader:
+                result = dict(line.items())
+
+            # store the data rollup in S3
+            s3.put_object(
+                Bucket=conf.bucket,
+                Key='global-metrics/results.json',
+                Body=json.dumps(result)
+            )
+
+            return json.dumps(result)
+
+
 def clear_cache(date):
     '''
     For the specified date, destroy all cached queries and daily rollups.
@@ -237,6 +286,26 @@ def clear_cache(date):
         Bucket=conf.bucket,
         Key='summaries/' + date + '/results.json'
     )
+
+
+def clear_global_cache():
+    '''
+    Destroy global metrics cache.
+    '''
+
+    # find the CSV results at the specified output path in S3
+    response = s3.list_objects_v2(
+        Bucket=conf.bucket,
+        Prefix='global-metrics/'
+    )
+    if 'Contents' not in response:
+        raise Exception('Query failed')
+
+    for key in response['Contents']:
+        response = s3.delete_object(
+            Bucket=conf.bucket,
+            Key=key['Key']
+        )
 
 
 def fetch_detail(date):
@@ -294,6 +363,38 @@ def fetch_summary(date):
         result = json.loads(generate_summary(date))
 
     # return our summary
+    return result
+
+
+def fetch_global_metrics():
+    '''
+    Fetch the JSON global metrics summary for all health
+    data stored in the data lake.
+    '''
+
+    # try and get the cached summary
+    try:
+        response = s3.get_object(
+            Bucket=conf.bucket,
+            Key='global-metrics/results.json'
+        )
+        result = json.loads(response['Body'].read())
+
+        # If the summary was generated more than 24 hours ago,
+        # regenerate to ensure we have the latest metrics
+        update_date = response['LastModified']
+        now = arrow.now(tz=conf.tz)
+        if now - update_date > timedelta(hours=24):
+            if now - update_date > timedelta(hours=1):
+                return result
+
+            clear_global_cache()
+            result = json.loads(generate_global_metrics())
+
+    # if we can't find it, generate it
+    except s3.exceptions.NoSuchKey:
+        result = json.loads(generate_global_metrics())
+
     return result
 
 
@@ -360,5 +461,20 @@ def summary(monthstr):
     # if there is no data, then abort
     if not len(data):
         flask.abort(404, 'No data available for this month.')
+
+    return flask.jsonify(data)
+
+
+@app.route('/global', methods=['GET'])
+def global_metrics():
+    '''
+    Get some high level status for all of my health history.
+    '''
+
+    data = fetch_global_metrics()
+
+    # if there is no data, then abort
+    if not len(data):
+        flask.abort(404, 'No data available.')
 
     return flask.jsonify(data)
