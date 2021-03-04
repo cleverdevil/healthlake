@@ -245,10 +245,10 @@ def generate_workout_detail(date):
             s3.put_object(
                 Bucket=conf.bucket,
                 Key='workout-summaries/' + date + '/results.json',
-                Body=json.dumps(result)
+                Body=json.dumps(results)
             )
 
-            return json.dumps(result)
+            return json.dumps(results)
 
 
 def generate_summary(date):
