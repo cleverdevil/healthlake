@@ -2,11 +2,11 @@ service: healthlake
 
 provider:
   name: aws
-  runtime: python3.6
+  runtime: python3.9
   stage: dev
   region: us-east-1
-  memorySize: 128
-  timeout: 30
+  memorySize: 128 
+  timeout: 30 
   apiGateway:
     shouldStartNameWithService: true
   iamRoleStatements:
@@ -39,6 +39,7 @@ resources:
   Resources:
     MyBucket:
       Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
       Properties:
         BucketName: 'my-healthlake-bucket'
 
